@@ -21,7 +21,10 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["technician", "admin"],
+      // "superadmin" → all branches, set branch: "all" in MongoDB
+      // "admin"      → one branch only, set branch: "<BranchName>" in MongoDB
+      // "technician" → default, self-signup
+      enum: ["technician", "admin", "superadmin"],
       default: "technician",
     },
     technicianId: {
@@ -31,6 +34,9 @@ const userSchema = new mongoose.Schema(
     branch: {
       type: String,
       default: "",
+      // For superadmin: set to "all" in MongoDB
+      // For admin:      set to the exact branch string (e.g. "Chennai")
+      // For technician: filled via profile-setup modal
     },
     profileComplete: {
       type: Boolean,
