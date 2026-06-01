@@ -26,7 +26,7 @@ const C = {
 };
 
 /* ─── Constants ──────────────────────────────────────────────────── */
-const BRANCHES = ["BALLARI", "CHITRADURGA", "HOSPET"];
+const BRANCHES = ["BALLARI", "CHITRADURGA", "HOSPET", "RAICHUR"];
 
 const CATEGORY_COLORS = {
   "ENGINE REPAIR":    "#2563EB",

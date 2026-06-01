@@ -15,4 +15,5 @@ export const BRANCHES = [
   "BALLARI",
   "CHITRADURGA",
   "HOSPET",
+  "RAICHUR"
 ];
