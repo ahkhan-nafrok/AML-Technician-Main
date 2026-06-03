@@ -8,8 +8,6 @@ import api from "../api/axios";
 import TechnicianTypeModal from "../components/TechnicianTypeModal";
 
 // ─── Stable month reference (page-load time) ─────────────────────────────────
-// Defined outside the component so it never changes between renders.
-// Stats will reflect the month the page was loaded. Refresh resets naturally.
 const NOW = new Date();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -20,6 +18,17 @@ const fmtMoney = (n) => {
   if (n >= 1000)   return `₹${(n / 1000).toFixed(1)}k`;
   return `₹${n}`;
 };
+
+const fmtTime = (iso) => {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("en-IN", {
+    hour: "2-digit", minute: "2-digit", hour12: true,
+  });
+};
+
+const TODAY_LABEL = NOW.toLocaleDateString("en-IN", {
+  weekday: "short", day: "numeric", month: "short", year: "numeric",
+}).toUpperCase();
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -104,6 +113,159 @@ const DASHBOARD_STYLES = `
     background: #F8FAFC;
     padding: 3px 8px;
     border: 1px solid #DDE3EE;
+  }
+
+  /* ── Attendance Card ── */
+  .td-att-wrap {
+    border-left: 1px solid #DDE3EE;
+    border-right: 1px solid #DDE3EE;
+    border-bottom: 1px solid #DDE3EE;
+    background: #FFFFFF;
+    overflow: hidden;
+  }
+  .td-att-card {
+    padding: 20px 20px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-left: 4px solid #CBD5E1;
+    transition: border-left-color 0.4s ease, background 0.4s ease;
+  }
+  .td-att-card.att-present {
+    border-left-color: #16A34A;
+    background: #F0FDF4;
+  }
+  .td-att-card.att-loading {
+    border-left-color: #E2E8F0;
+  }
+  .td-att-left { flex: 1; min-width: 0; }
+  .td-att-eyebrow {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #6B7A99;
+    margin-bottom: 5px;
+  }
+  .td-att-today {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: #0A1628;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1.1;
+    margin-bottom: 5px;
+  }
+  .td-att-status-text {
+    font-size: 11px;
+    font-weight: 500;
+    color: #94A3B8;
+    letter-spacing: 0.02em;
+  }
+  .td-att-status-text.present {
+    color: #16A34A;
+    font-weight: 600;
+  }
+
+  /* Toggle switch */
+  .td-toggle-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .td-toggle-btn:disabled {
+    cursor: not-allowed;
+  }
+  .td-toggle-track {
+    width: 64px;
+    height: 34px;
+    border-radius: 17px;
+    background: #E2E8F0;
+    border: 2px solid #CBD5E1;
+    position: relative;
+    transition: background 0.28s ease, border-color 0.28s ease;
+  }
+  .td-toggle-track.on {
+    background: #16A34A;
+    border-color: #15803D;
+  }
+  .td-toggle-track.loading {
+    opacity: 0.55;
+  }
+  .td-toggle-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.22);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .td-toggle-track.on .td-toggle-knob {
+    transform: translateX(30px);
+  }
+  .td-toggle-label {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #94A3B8;
+    transition: color 0.25s ease;
+  }
+  .td-toggle-label.on { color: #16A34A; }
+
+  /* Unlock prompt strip */
+  .td-att-prompt {
+    background: #EEF2F7;
+    border-top: 1px solid #E2E8F0;
+    padding: 9px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .td-att-prompt-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #1E3A8A;
+    flex-shrink: 0;
+    animation: attPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes attPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+  .td-att-prompt-text {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #1E3A8A;
+  }
+
+  /* ── Gate overlay wrapper ── */
+  .td-gate-wrap {
+    position: relative;
+  }
+  .td-gate-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(238, 242, 247, 0.80);
+    z-index: 50;
+    pointer-events: all;
+    backdrop-filter: grayscale(0.4);
+    -webkit-backdrop-filter: grayscale(0.4);
   }
 
   /* ── Stat grid ── */
@@ -207,6 +369,10 @@ const DASHBOARD_STYLES = `
   }
   .td-new-entry-btn:hover  { background: #1E40AF; }
   .td-new-entry-btn:active { background: #1E3A8A; }
+  .td-new-entry-btn:disabled {
+    background: #94A3B8;
+    cursor: not-allowed;
+  }
 
   /* ── Section wrapper ── */
   .td-section {
@@ -459,11 +625,6 @@ const DASHBOARD_STYLES = `
     border-color: #E2E8F0;
     background: #F8FAFC;
   }
-  .td-slab-desc {
-    font-size: 11px;
-    color: #6B7A99;
-    font-weight: 400;
-  }
 
   .td-breakdown {
     background: #F8FAFC;
@@ -545,12 +706,19 @@ const DASHBOARD_STYLES = `
     align-items: center;
     justify-content: center;
     box-shadow: 0 4px 20px rgba(30,58,138,0.35);
-    transition: background 0.15s, transform 0.15s;
+    transition: background 0.15s, transform 0.15s, opacity 0.15s;
     z-index: 100;
     -webkit-tap-highlight-color: transparent;
   }
   .td-fab:hover  { background: #1E40AF; transform: scale(1.06); }
   .td-fab:active { background: #1E3A8A; transform: scale(0.97); }
+  .td-fab:disabled {
+    background: #94A3B8;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    opacity: 0.6;
+  }
 
   /* Empty state */
   .td-empty {
@@ -595,10 +763,7 @@ function StatCard({ label, value, unit, accent, accentCard }) {
   return (
     <div className={`td-stat-card${accentCard ? " td-stat-card-accent" : ""}`}>
       <div className="td-stat-label">{label}</div>
-      <div
-        className="td-stat-value"
-        style={accent ? { color: accent } : undefined}
-      >
+      <div className="td-stat-value" style={accent ? { color: accent } : undefined}>
         {value}
       </div>
       {unit && <div className="td-stat-unit">{unit}</div>}
@@ -624,12 +789,58 @@ function ThresholdBar({ label, current, target, met, formatValue }) {
       <div className="td-progress-track">
         <div
           className="td-progress-fill"
-          style={{
-            width: `${pct}%`,
-            background: met ? "#16A34A" : "#1E3A8A",
-          }}
+          style={{ width: `${pct}%`, background: met ? "#16A34A" : "#1E3A8A" }}
         />
       </div>
+    </div>
+  );
+}
+
+// ─── Attendance Card ──────────────────────────────────────────────────────────
+
+function AttendanceCard({ attStatus, attMarking, onMark }) {
+  const isMarked  = attStatus?.marked === true;
+  const isLoading = attStatus === null || attMarking;
+
+  return (
+    <div className="td-att-wrap td-a1">
+      <div className={`td-att-card${isMarked ? " att-present" : isLoading ? " att-loading" : ""}`}>
+        <div className="td-att-left">
+          <div className="td-att-eyebrow">Today's Attendance</div>
+          <div className="td-att-today">{TODAY_LABEL}</div>
+          <div className={`td-att-status-text${isMarked ? " present" : ""}`}>
+            {attStatus === null
+              ? "Checking status…"
+              : isMarked
+              ? `✓ Present · Marked at ${fmtTime(attStatus.markedAt)}`
+              : "Toggle to mark yourself present"}
+          </div>
+        </div>
+
+        <button
+          className="td-toggle-btn"
+          onClick={onMark}
+          disabled={isMarked || isLoading}
+          aria-label={isMarked ? "Attendance marked" : "Mark attendance"}
+        >
+          <div className={`td-toggle-track${isMarked ? " on" : ""}${isLoading ? " loading" : ""}`}>
+            <div className="td-toggle-knob" />
+          </div>
+          <span className={`td-toggle-label${isMarked ? " on" : ""}`}>
+            {isMarked ? "Present" : isLoading && attStatus === null ? "…" : "Off"}
+          </span>
+        </button>
+      </div>
+
+      {/* Pulsing prompt strip — only shown when not yet marked */}
+      {!isMarked && attStatus !== null && (
+        <div className="td-att-prompt">
+          <div className="td-att-prompt-dot" />
+          <span className="td-att-prompt-text">
+            Mark attendance to unlock dashboard &amp; job card entry
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -670,13 +881,11 @@ function IncentiveDropdown() {
     if (month === 1) { setYear((y) => y - 1); setMonth(12); }
     else setMonth((m) => m - 1);
   };
-
   const goForward = () => {
     if (isCurrentMonth) return;
     if (month === 12) { setYear((y) => y + 1); setMonth(1); }
     else setMonth((m) => m + 1);
   };
-
   const resetToCurrent = () => {
     setYear(NOW.getFullYear());
     setMonth(NOW.getMonth() + 1);
@@ -690,11 +899,7 @@ function IncentiveDropdown() {
 
   return (
     <div className="td-section" style={{ marginTop: 16 }}>
-
-      <button
-        className="td-incentive-toggle"
-        onClick={() => setOpen((o) => !o)}
-      >
+      <button className="td-incentive-toggle" onClick={() => setOpen((o) => !o)}>
         <div>
           <div className="td-incentive-eyebrow">Monthly Incentive</div>
           <div className="td-incentive-sub">Payout on the 2nd of every month</div>
@@ -706,24 +911,11 @@ function IncentiveDropdown() {
         <>
           <div className="td-month-strip">
             {!isCurrentMonth && (
-              <button className="td-month-now-pill" onClick={resetToCurrent}>
-                Now
-              </button>
+              <button className="td-month-now-pill" onClick={resetToCurrent}>Now</button>
             )}
-            <button
-              className="td-month-nav"
-              onClick={goBack}
-              aria-label="Previous month"
-            >‹</button>
-            <span className="td-month-label">
-              {MONTH_NAMES[month - 1].slice(0, 3)} {year}
-            </span>
-            <button
-              className="td-month-nav"
-              onClick={goForward}
-              disabled={isCurrentMonth}
-              aria-label="Next month"
-            >›</button>
+            <button className="td-month-nav" onClick={goBack} aria-label="Previous month">‹</button>
+            <span className="td-month-label">{MONTH_NAMES[month - 1].slice(0, 3)} {year}</span>
+            <button className="td-month-nav" onClick={goForward} disabled={isCurrentMonth} aria-label="Next month">›</button>
           </div>
 
           {loading ? (
@@ -732,9 +924,7 @@ function IncentiveDropdown() {
             </div>
           ) : fetchError ? (
             <div className="td-incent-placeholder">
-              <p style={{ color: "#DC2626", fontSize: "12px", fontWeight: "600" }}>
-                {fetchError}
-              </p>
+              <p style={{ color: "#DC2626", fontSize: "12px", fontWeight: "600" }}>{fetchError}</p>
             </div>
           ) : data?.entryCount === 0 ? (
             <div className="td-incent-placeholder">
@@ -744,7 +934,6 @@ function IncentiveDropdown() {
             </div>
           ) : data && (
             <div className="td-incentive-body">
-
               <div className="td-totals-grid">
                 {[
                   { label: "Hours",  value: `${data.totalHours}h`,     color: hoursMet  ? "#16A34A" : "#0A1628" },
@@ -763,24 +952,12 @@ function IncentiveDropdown() {
                   fontSize: "9px", fontWeight: "700", letterSpacing: "0.18em",
                   textTransform: "uppercase", color: "#94A3B8", marginBottom: "14px",
                 }}>
-                  {currentSlabNum === 3
-                    ? "Max slab achieved"
-                    : `Progress toward Slab ${progressTarget.slab}`}
+                  {currentSlabNum === 3 ? "Max slab achieved" : `Progress toward Slab ${progressTarget.slab}`}
                 </div>
-                <ThresholdBar
-                  label="Hours"
-                  current={data.totalHours}
-                  target={progressTarget.minHours}
-                  met={data.totalHours > progressTarget.minHours}
-                  formatValue={(v) => `${v} hrs`}
-                />
-                <ThresholdBar
-                  label="Labour"
-                  current={data.totalLabour}
-                  target={progressTarget.minLabour}
-                  met={data.totalLabour > progressTarget.minLabour}
-                  formatValue={(v) => fmtMoney(v)}
-                />
+                <ThresholdBar label="Hours" current={data.totalHours} target={progressTarget.minHours}
+                  met={data.totalHours > progressTarget.minHours} formatValue={(v) => `${v} hrs`} />
+                <ThresholdBar label="Labour" current={data.totalLabour} target={progressTarget.minLabour}
+                  met={data.totalLabour > progressTarget.minLabour} formatValue={(v) => fmtMoney(v)} />
                 {(hoursMet !== labourMet) && (
                   <div className="td-both-warning">
                     Both hours and labour must exceed their threshold for a slab to apply.
@@ -801,26 +978,10 @@ function IncentiveDropdown() {
 
               <div className="td-breakdown">
                 {[
-                  {
-                    label:  "Base Incentive",
-                    value:  data.baseIncentive > 0 ? `₹${data.baseIncentive.toLocaleString()}` : "₹0",
-                    dimmed: data.baseIncentive === 0,
-                  },
-                  {
-                    label:  `Leave Multiplier (${data.leaveTier ?? "—"})`,
-                    value:  `${Math.round(data.leaveMultiplier * 100)}%`,
-                    dimmed: data.leaveMultiplier === 0,
-                  },
-                  {
-                    label:  "No-Leave Bonus",
-                    value:  data.noLeaveBonus > 0 ? `+₹${data.noLeaveBonus.toLocaleString()}` : "—",
-                    dimmed: data.noLeaveBonus === 0,
-                  },
-                  ...(data.isCapped ? [{
-                    label:  "Cap Applied",
-                    value:  "₹10,000 max",
-                    dimmed: false,
-                  }] : []),
+                  { label: "Base Incentive",   value: data.baseIncentive > 0 ? `₹${data.baseIncentive.toLocaleString()}` : "₹0", dimmed: data.baseIncentive === 0 },
+                  { label: `Leave Multiplier (${data.leaveTier ?? "—"})`, value: `${Math.round(data.leaveMultiplier * 100)}%`, dimmed: data.leaveMultiplier === 0 },
+                  { label: "No-Leave Bonus",   value: data.noLeaveBonus > 0 ? `+₹${data.noLeaveBonus.toLocaleString()}` : "—", dimmed: data.noLeaveBonus === 0 },
+                  ...(data.isCapped ? [{ label: "Cap Applied", value: "₹10,000 max", dimmed: false }] : []),
                 ].map(({ label, value, dimmed }) => (
                   <div key={label} className={`td-breakdown-row${dimmed ? " dimmed" : ""}`}>
                     <span className="td-breakdown-label">{label}</span>
@@ -830,19 +991,11 @@ function IncentiveDropdown() {
               </div>
 
               <div className="td-final-row">
-                <span
-                  className="td-final-label"
-                  style={{ color: data.finalIncentive > 0 ? "#1E3A8A" : "#94A3B8" }}
-                >
+                <span className="td-final-label" style={{ color: data.finalIncentive > 0 ? "#1E3A8A" : "#94A3B8" }}>
                   {isCurrentMonth ? "Projected Incentive" : "Final Incentive"}
                 </span>
-                <span
-                  className="td-final-amount"
-                  style={{ color: data.finalIncentive > 0 ? "#0A1628" : "#CBD5E1" }}
-                >
-                  {data.finalIncentive > 0
-                    ? `₹${data.finalIncentive.toLocaleString()}`
-                    : "₹0"}
+                <span className="td-final-amount" style={{ color: data.finalIncentive > 0 ? "#0A1628" : "#CBD5E1" }}>
+                  {data.finalIncentive > 0 ? `₹${data.finalIncentive.toLocaleString()}` : "₹0"}
                 </span>
               </div>
 
@@ -863,10 +1016,18 @@ function IncentiveDropdown() {
 
 export default function TechnicianDashboard() {
   const { user } = useAuthStore();
+
   const [entries,          setEntries]          = useState([]);
   const [loading,          setLoading]          = useState(true);
   const [showForm,         setShowForm]         = useState(false);
   const [currentIncentive, setCurrentIncentive] = useState(null);
+
+  // ── Attendance state ──────────────────────────────────────────────────────
+  // null  = still loading today's status from server
+  // { marked: false, markedAt: null }  = not yet marked
+  // { marked: true,  markedAt: Date }  = present today
+  const [attStatus,  setAttStatus]  = useState(null);
+  const [attMarking, setAttMarking] = useState(false);
 
   /* inject styles */
   useEffect(() => {
@@ -905,8 +1066,39 @@ export default function TechnicianDashboard() {
     }
   }, []);
 
-  useEffect(() => { fetchEntries(); },          [fetchEntries]);
+  // ── Attendance fetch ──────────────────────────────────────────────────────
+  const fetchAttStatus = useCallback(async () => {
+    try {
+      const res = await api.get("/api/attendance/today");
+      setAttStatus(res.data); // { marked, markedAt, date }
+    } catch (err) {
+      console.error("Attendance status fetch error:", err);
+      // Fail open — allow dashboard to load even if attendance check fails
+      setAttStatus({ marked: false, markedAt: null });
+    }
+  }, []);
+
+  const handleMarkAttendance = async () => {
+    if (attMarking || attStatus?.marked) return;
+    setAttMarking(true);
+    try {
+      const res = await api.post("/api/attendance/mark");
+      const att = res.data.attendance;
+      setAttStatus({ marked: true, markedAt: att.markedAt });
+    } catch (err) {
+      console.error("Mark attendance error:", err);
+    } finally {
+      setAttMarking(false);
+    }
+  };
+
+  useEffect(() => { fetchEntries();          }, [fetchEntries]);
   useEffect(() => { fetchCurrentIncentive(); }, [fetchCurrentIncentive]);
+
+  // Only fetch attendance once profile is fully set up
+  useEffect(() => {
+    if (user?.profileComplete) fetchAttStatus();
+  }, [user?.profileComplete, fetchAttStatus]);
 
   const handleSaved = useCallback(() => {
     fetchEntries();
@@ -914,8 +1106,6 @@ export default function TechnicianDashboard() {
   }, [fetchEntries, fetchCurrentIncentive]);
 
   // ── This-month filter ─────────────────────────────────────────────────────
-  // Slices the full entries array to the current calendar month only.
-  // Stats on the dashboard reflect this month. Entry table below still shows all.
   const thisMonthEntries = entries.filter((e) => {
     const d = new Date(e.date);
     return (
@@ -929,16 +1119,22 @@ export default function TechnicianDashboard() {
   const totalLeave    = thisMonthEntries.reduce((s, e) => s + (e.leaveDays    || 0), 0);
   const totalVehicles = new Set(thisMonthEntries.map((e) => e.vehicleNo).filter(Boolean)).size;
 
-  const needsProfile = user?.role === "technician" && !user?.profileComplete;
-  const needsType    = user?.role === "technician" && user?.profileComplete && !user?.technicianType;
+  const needsProfile  = user?.role === "technician" && !user?.profileComplete;
+  const needsType     = user?.role === "technician" && user?.profileComplete && !user?.technicianType;
+
+  // Entry is allowed only when attendance is marked AND profile/type setup is done
+  const entryAllowed  = attStatus?.marked === true && !needsType;
 
   const incentiveDisplay =
     currentIncentive === null ? "—"  :
     currentIncentive === 0    ? "₹0" :
     fmtMoney(currentIncentive);
 
-  // Month label for the banner e.g. "June 2026"
   const currentMonthLabel = `${MONTH_NAMES[NOW.getMonth()]} ${NOW.getFullYear()}`;
+
+  // Whether to show the gate overlay (locked state)
+  // Locked when: profile complete but attendance not yet marked (or still loading)
+  const isGated = user?.profileComplete && attStatus?.marked !== true;
 
   return (
     <div className="td-page">
@@ -968,69 +1164,82 @@ export default function TechnicianDashboard() {
       {/* ── Content ── */}
       <div style={{ padding: "0 0 100px", maxWidth: "600px", margin: "0 auto" }}>
 
-        {/* ── Stats grid ── */}
-        <div className="td-stat-grid td-a2">
-          <StatCard label="Entries"          value={thisMonthEntries.length} />
-          <StatCard label="Hours Worked"     value={totalHours}              unit="hrs" />
-          <StatCard label="Labour Earned"    value={fmtMoney(totalLabour)} />
-          <StatCard label="Leave Days"       value={totalLeave}              unit="days" />
-          <StatCard label="Vehicles Served"  value={totalVehicles}           unit="unique" />
-          <StatCard
-            label="Projected Incentive"
-            value={incentiveDisplay}
-            unit="this month"
-            accent={currentIncentive > 0 ? "#16A34A" : undefined}
-            accentCard={currentIncentive > 0}
+        {/* ── Attendance card — always visible, profile must be complete ── */}
+        {!needsProfile && (
+          <AttendanceCard
+            attStatus={attStatus}
+            attMarking={attMarking}
+            onMark={handleMarkAttendance}
           />
-        </div>
+        )}
 
-        {/* ── Month context banner ── */}
-        <div className="td-month-banner td-a2">
-          <div className="td-month-banner-dot" />
-          <span className="td-month-banner-text">Showing stats for</span>
-          <span className="td-month-banner-value">{currentMonthLabel}</span>
-        </div>
+        {/*
+          ── Gate wrapper ──
+          Everything below is visible but overlaid with a semi-transparent
+          grey layer when attendance hasn't been marked yet.
+          pointer-events on the overlay blocks all interaction.
+        */}
+        <div className="td-gate-wrap">
+          {isGated && <div className="td-gate-overlay" />}
 
-        {/* ── New Entry button ── */}
-        <button
-          className="td-new-entry-btn td-a3"
-          onClick={() => !needsType && setShowForm(true)}
-          disabled={needsType}
-          style={{
-            opacity: needsType ? 0.5 : undefined,
-            cursor:  needsType ? "not-allowed" : undefined,
-          }}
-        >
-          <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span>
-          New Entry
-        </button>
-
-        {/* ── Monthly Incentive dropdown ── */}
-        <div className="td-a4">
-          <IncentiveDropdown />
-        </div>
-
-        {/* ── Work entries section — full history ── */}
-        <div className="td-section td-a5">
-          <div className="td-section-header">
-            <span className="td-section-label">All Work Entries</span>
-            <span className="td-section-count">{entries.length} total</span>
+          {/* ── Stats grid ── */}
+          <div className="td-stat-grid td-a2">
+            <StatCard label="Entries"          value={thisMonthEntries.length} />
+            <StatCard label="Hours Worked"     value={totalHours}              unit="hrs" />
+            <StatCard label="Labour Earned"    value={fmtMoney(totalLabour)} />
+            <StatCard label="Leave Days"       value={totalLeave}              unit="days" />
+            <StatCard label="Vehicles Served"  value={totalVehicles}           unit="unique" />
+            <StatCard
+              label="Projected Incentive"
+              value={incentiveDisplay}
+              unit="this month"
+              accent={currentIncentive > 0 ? "#16A34A" : undefined}
+              accentCard={currentIncentive > 0}
+            />
           </div>
 
-          {loading ? (
-            <div className="td-loading">Loading…</div>
-          ) : (
-            <EntryTable entries={entries} onDeleted={fetchEntries} />
-          )}
+          {/* ── Month context banner ── */}
+          <div className="td-month-banner td-a2">
+            <div className="td-month-banner-dot" />
+            <span className="td-month-banner-text">Showing stats for</span>
+            <span className="td-month-banner-value">{currentMonthLabel}</span>
+          </div>
+
+          {/* ── New Entry button ── */}
+          <button
+            className="td-new-entry-btn td-a3"
+            onClick={() => entryAllowed && setShowForm(true)}
+            disabled={!entryAllowed}
+          >
+            <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span>
+            New Entry
+          </button>
+
+          {/* ── Monthly Incentive dropdown ── */}
+          <div className="td-a4">
+            <IncentiveDropdown />
+          </div>
+
+          {/* ── Work entries section — full history ── */}
+          <div className="td-section td-a5">
+            <div className="td-section-header">
+              <span className="td-section-label">All Work Entries</span>
+              <span className="td-section-count">{entries.length} total</span>
+            </div>
+            {loading ? (
+              <div className="td-loading">Loading…</div>
+            ) : (
+              <EntryTable entries={entries} onDeleted={fetchEntries} />
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── FAB ── */}
+      {/* ── FAB — disabled until attendance marked ── */}
       <button
         className="td-fab"
-        onClick={() => !needsType && setShowForm(true)}
-        disabled={needsType}
-        style={{ opacity: needsType ? 0.5 : undefined }}
+        onClick={() => entryAllowed && setShowForm(true)}
+        disabled={!entryAllowed}
         aria-label="New Entry"
       >
         +
