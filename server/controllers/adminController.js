@@ -1,5 +1,11 @@
-const Entry = require("../models/Entry");
-const User  = require("../models/User");
+const Entry      = require("../models/Entry");
+const User       = require("../models/User");
+const Attendance = require("../models/Attendance"); // FIX Bugs 5 & 6: needed for cascade operations
+
+// FIX Bug 10: Server-side branch whitelist.
+// Must stay in sync with client/src/utils/constants.js — BRANCHES array.
+// If a new branch is added, update both files together.
+const VALID_BRANCHES = ["BALLARI", "CHITRADURGA", "HOSPET", "RAICHUR"];
 
 /**
  * isBranchAdmin(req)
@@ -8,9 +14,9 @@ const User  = require("../models/User");
  */
 const isBranchAdmin = (req) => req.user.role === "admin";
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/branches  ← SUPERADMIN ONLY (enforced in routes)
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const getBranches = async (req, res) => {
   try {
     const branches = await User.distinct("branch", {
@@ -23,15 +29,14 @@ const getBranches = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/branch/:branch  — aggregated stats for a branch
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const getBranchDashboard = async (req, res) => {
   try {
     const { branch } = req.params;
 
     // Branch admin: the URL branch must match their own branch.
-    // This prevents hitting /api/admin/branch/Mumbai when they're a Chennai admin.
     if (isBranchAdmin(req) && branch !== req.user.branch) {
       return res
         .status(403)
@@ -81,14 +86,13 @@ const getBranchDashboard = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/branch/:branch/technicians
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const getBranchTechnicians = async (req, res) => {
   try {
     const { branch } = req.params;
 
-    // Branch admin: enforce branch match
     if (isBranchAdmin(req) && branch !== req.user.branch) {
       return res
         .status(403)
@@ -110,17 +114,17 @@ const getBranchTechnicians = async (req, res) => {
             },
           },
         ]);
-// Inside getBranchTechnicians, in the result map — replace the return object:
-return {
-  id:             tech._id,
-  name:           tech.name,
-  technicianId:   tech.technicianId,
-  email:          tech.email,
-  technicianType: tech.technicianType || null,  // ← NEW
-  totalEntries:   summary?.totalEntries || 0,
-  totalHours:     summary?.totalHours   || 0,
-  totalLabour:    summary?.totalLabour  || 0,
-};
+
+        return {
+          id:             tech._id,
+          name:           tech.name,
+          technicianId:   tech.technicianId,
+          email:          tech.email,
+          technicianType: tech.technicianType || null,
+          totalEntries:   summary?.totalEntries || 0,
+          totalHours:     summary?.totalHours   || 0,
+          totalLabour:    summary?.totalLabour  || 0,
+        };
       })
     );
 
@@ -130,23 +134,21 @@ return {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/technician/:userId  — paginated entries
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const getTechnicianEntries = async (req, res) => {
   try {
     const { userId } = req.params;
     const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    // Always fetch the target user first — we need their branch for the ownership check.
-    // This also means a 404 is returned immediately for invalid userIds.
+    // Always fetch the target user first — we need their branch for ownership check.
     const targetUser = await User.findById(userId).select("-password");
     if (!targetUser)
       return res.status(404).json({ message: "Technician not found" });
 
-    // Branch admin: the target technician must belong to their branch.
-    // Without this check, a branch admin could access ANY technician by guessing userId.
+    // Branch admin: target technician must belong to their branch.
     if (isBranchAdmin(req) && targetUser.branch !== req.user.branch) {
       return res.status(403).json({
         message: "Access denied: This technician is not in your branch.",
@@ -173,41 +175,64 @@ const getTechnicianEntries = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/admin/entry/:id
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const editEntry = async (req, res) => {
   try {
-    // Fetch entry BEFORE updating — we need the branch to check ownership.
-    // Never trust the branch in req.body; always read it from the DB record.
+    // Read-before-mutate: fetch first to get branch for ownership check.
     const entry = await Entry.findById(req.params.id);
     if (!entry) return res.status(404).json({ message: "Entry not found" });
 
-    // Branch admin: can only edit entries that belong to their branch.
-    // This stops a branch admin from editing a Chennai entry via a direct API call
-    // even if they have a valid admin JWT.
     if (isBranchAdmin(req) && entry.branch !== req.user.branch) {
       return res.status(403).json({
         message: "Access denied: This entry does not belong to your branch.",
       });
     }
 
-    const updated = await Entry.findByIdAndUpdate(req.params.id, req.body, {
-      new:            true,
-      runValidators:  true,
+    // FIX Bug 2: Allowlist — only these fields can be changed by admin.
+    // Excluded (intentionally immutable via this route):
+    //   userId       — entry ownership must never change
+    //   branch       — branch is inherited from the user; use editUser to change
+    //   date         — changing dates moves entries between months/quarters,
+    //                  corrupting historical incentive calculations
+    //   incentive    — always computed server-side on demand; never stored directly
+    //   technicianType — synced from user profile; use editUser to change
+    //
+    // Before this fix, `req.body` went straight into findByIdAndUpdate, allowing
+    // any field to be overwritten — including incentive and userId.
+    const { category, vehicleNo, jcNo, hoursWorked, labourAmount, leaveDays } = req.body;
+    const updates = {};
+
+    if (category     !== undefined) updates.category     = category;
+    if (vehicleNo    !== undefined) updates.vehicleNo    = vehicleNo?.trim() || "";
+    if (jcNo         !== undefined) updates.jcNo         = jcNo?.trim();
+    if (hoursWorked  !== undefined) updates.hoursWorked  = Number(hoursWorked)  || 0;
+    if (labourAmount !== undefined) updates.labourAmount = Number(labourAmount) || 0;
+    if (leaveDays    !== undefined) updates.leaveDays    = Number(leaveDays)    || 0;
+
+    const updated = await Entry.findByIdAndUpdate(req.params.id, updates, {
+      new:           true,
+      runValidators: true, // schema max/min/enum validators fire here
     });
+
     res.json(updated);
   } catch (err) {
+    // FIX: Return 400 for Mongoose validation failures (e.g. schema max exceeded)
+    // instead of the generic 500, so the frontend can surface the real message.
+    if (err.name === "ValidationError") {
+      const messages = Object.values(err.errors).map((e) => e.message);
+      return res.status(400).json({ message: messages.join(", ") });
+    }
     res.status(500).json({ message: err.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/admin/entry/:id
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const deleteEntry = async (req, res) => {
   try {
-    // Same pattern as editEntry — read first, check branch, then delete.
     const entry = await Entry.findById(req.params.id);
     if (!entry) return res.status(404).json({ message: "Entry not found" });
 
@@ -224,9 +249,9 @@ const deleteEntry = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/technician/:userId/export
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const exportTechnicianData = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -235,8 +260,6 @@ const exportTechnicianData = async (req, res) => {
     if (!targetUser)
       return res.status(404).json({ message: "Technician not found" });
 
-    // Branch admin: can only export technicians in their branch.
-    // Without this a branch admin could export any technician's full history.
     if (isBranchAdmin(req) && targetUser.branch !== req.user.branch) {
       return res.status(403).json({
         message: "Access denied: This technician is not in your branch.",
@@ -250,21 +273,16 @@ const exportTechnicianData = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/analytics
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 const getAnalytics = async (req, res) => {
   try {
     const { from, to } = req.query;
 
-    /**
-     * Branch scoping decision:
-     *
-     * Superadmin → can optionally filter by branch via ?branch= query param (or see all).
-     * Branch admin → branch is ALWAYS forced to req.user.branch.
-     *   The query param is intentionally ignored — a branch admin must never
-     *   be able to pass ?branch=Mumbai and see another branch's data.
-     */
+    // Branch scoping:
+    //   Superadmin → optional ?branch= filter, or all
+    //   Branch admin → always forced to req.user.branch; query param is ignored
     const branch = isBranchAdmin(req) ? req.user.branch : req.query.branch;
 
     const matchStage = {};
@@ -278,7 +296,6 @@ const getAnalytics = async (req, res) => {
     const [overviewArr, byBranch, byCategory, byMonth, topTechs] =
       await Promise.all([
 
-        // 1. Overall totals
         Entry.aggregate([
           { $match: matchStage },
           {
@@ -293,8 +310,6 @@ const getAnalytics = async (req, res) => {
           },
         ]),
 
-        // 2. Per-branch breakdown
-        // For branch admin this will always be a single-item array (their branch only).
         Entry.aggregate([
           { $match: matchStage },
           {
@@ -310,7 +325,6 @@ const getAnalytics = async (req, res) => {
           { $sort: { totalLabour: -1 } },
         ]),
 
-        // 3. Per-category breakdown
         Entry.aggregate([
           { $match: matchStage },
           {
@@ -324,7 +338,6 @@ const getAnalytics = async (req, res) => {
           { $sort: { totalLabour: -1 } },
         ]),
 
-        // 4. Monthly trend (last 12 months)
         Entry.aggregate([
           { $match: matchStage },
           {
@@ -343,7 +356,6 @@ const getAnalytics = async (req, res) => {
           { $limit: 12 },
         ]),
 
-        // 5. Top 10 technicians by labour (already scoped by matchStage.branch)
         Entry.aggregate([
           { $match: matchStage },
           {
@@ -399,13 +411,6 @@ const getAnalytics = async (req, res) => {
         totalEntries:    m.totalEntries,
       })),
       topTechs,
-
-      /**
-       * scopedBranch is sent back to the frontend so components can know
-       * whether they're in branch-admin mode without rechecking user.role.
-       * null  → superadmin (no scope, all data)
-       * string → branch admin (scoped to this branch)
-       */
       scopedBranch: isBranchAdmin(req) ? req.user.branch : null,
     });
   } catch (err) {
@@ -414,11 +419,11 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/admin/user/:userId  ← SUPERADMIN ONLY
 // Editable: name, technicianId, branch, technicianType
-// Never: email, password, role
-// ─────────────────────────────────────────────────────────────
+// Never:    email, password, role
+// ─────────────────────────────────────────────────────────────────────────────
 const editUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -431,31 +436,43 @@ const editUser = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Safety: only technician accounts can be edited here
     if (user.role !== "technician") {
       return res.status(403).json({
         message: "Only technician accounts can be edited via this route.",
       });
     }
 
-    // Validate technicianType if a value is being set
     if (technicianType && !VALID_TYPES.includes(technicianType)) {
       return res.status(400).json({ message: "Invalid technician type." });
     }
 
-    // Build update object — only include fields that were sent
+    // FIX Bug 10: Validate branch against known list before accepting.
+    // Previously any string was accepted, which could create users with
+    // branches that no admin manages and that never appear in any dropdown.
+    if (branch !== undefined) {
+      const trimmedBranch = branch.trim();
+      if (!VALID_BRANCHES.includes(trimmedBranch)) {
+        return res.status(400).json({
+          message: `Invalid branch. Valid options: ${VALID_BRANCHES.join(", ")}`,
+        });
+      }
+    }
+
     const updates = {};
     if (name          !== undefined) updates.name          = name.trim();
     if (technicianId  !== undefined) updates.technicianId  = technicianId.trim();
     if (branch        !== undefined) updates.branch        = branch.trim();
-    // technicianType can be explicitly set to null (clear it)
     if (technicianType !== undefined) updates.technicianType = technicianType || null;
 
     const updatedUser = await User.findByIdAndUpdate(userId, updates, { new: true }).select("-password");
 
-    // If branch changed → cascade to all entries (entries carry a branch copy)
+    // If branch changed → cascade to entries AND attendance records.
+    // FIX Bug 6: Previously only entries were cascaded. Attendance records
+    // kept the old branch, causing the admin attendance board to show the
+    // moved technician as "absent" on all historical dates.
     if (updates.branch && updates.branch !== user.branch) {
       await Entry.updateMany({ userId }, { $set: { branch: updates.branch } });
+      await Attendance.updateMany({ userId }, { $set: { branch: updates.branch } }); // FIX Bug 6
     }
 
     // If technicianType changed → cascade to all entries
@@ -469,10 +486,10 @@ const editUser = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/admin/user/:userId  ← SUPERADMIN ONLY
-// Deletes the user account + all their job card entries (cascade)
-// ─────────────────────────────────────────────────────────────
+// Deletes the user account + all their job card entries + attendance records
+// ─────────────────────────────────────────────────────────────────────────────
 const deleteUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -480,15 +497,19 @@ const deleteUser = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Safety: only technician accounts can be deleted here
     if (user.role !== "technician") {
       return res.status(403).json({
         message: "Only technician accounts can be deleted via this route.",
       });
     }
 
-    // Cascade: delete all entries first, then the user
+    // FIX Bug 5: Cascade to Attendance records.
+    // Previously only Entry records were deleted. Attendance records were left
+    // as orphaned documents with a userId pointing to a non-existent user.
+    // The monthly cron only removes records older than 1 month, so recent
+    // orphans would persist indefinitely.
     await Entry.deleteMany({ userId });
+    await Attendance.deleteMany({ userId }); // FIX Bug 5
     await user.deleteOne();
 
     res.json({ message: "Technician and all their entries have been deleted." });
@@ -506,6 +527,6 @@ module.exports = {
   deleteEntry,
   exportTechnicianData,
   getAnalytics,
-  editUser,    // ← NEW
-  deleteUser,  // ← NEW
+  editUser,
+  deleteUser,
 };
