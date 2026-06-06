@@ -2,11 +2,16 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../store/authStore";
 
-/* ─── Admin nav items ──────────────────────────────────────────── */
+/* ─── Admin nav items ──────────────────────────────────────────────
+   superadminOnly: true  → link only renders for superadmin role.
+   superadminOnly: false → link renders for both admin and superadmin.
+   visibleNav (computed below) handles the filtering before render.
+─────────────────────────────────────────────────────────────────── */
 const ADMIN_NAV = [
-  { path: "/admin",             label: "Dashboard"  },
-  { path: "/admin/analytics",   label: "Analytics"  },
-  { path: "/admin/attendance",  label: "Attendance" }, // ← new
+  { path: "/admin",                label: "Dashboard",      superadminOnly: false },
+  { path: "/admin/analytics",      label: "Analytics",      superadminOnly: false },
+  { path: "/admin/attendance",     label: "Attendance",     superadminOnly: false },
+  { path: "/admin/vehicle-search", label: "Vehicle Search", superadminOnly: true  }, // ← new
 ];
 
 /* ─── Injected styles ──────────────────────────────────────────── */
@@ -294,6 +299,16 @@ export default function Navbar() {
   const isSuperAdmin   = user?.role === "superadmin";
   const isBranchAdmin  = user?.role === "admin";
 
+  /**
+   * visibleNav — filters ADMIN_NAV based on role.
+   * superadminOnly: true items are stripped out for branch admins.
+   * This is the single source of truth for what links each role sees.
+   * Both desktop and mobile nav use this same filtered array.
+   */
+  const visibleNav = ADMIN_NAV.filter(
+    ({ superadminOnly }) => !superadminOnly || isSuperAdmin
+  );
+
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef                 = useRef(null);
 
@@ -394,7 +409,7 @@ export default function Navbar() {
             <>
               <div className="aml-brand-sep" />
               <nav className="aml-desktop-nav" aria-label="Admin navigation">
-                {ADMIN_NAV.map(({ path, label }) => (
+                {visibleNav.map(({ path, label }) => (
                   <Link
                     key={path}
                     to={path}
@@ -470,7 +485,7 @@ export default function Navbar() {
           aria-hidden={!menuOpen}
         >
           <div className="aml-mobile-menu-inner">
-            {ADMIN_NAV.map(({ path, label }) => {
+            {visibleNav.map(({ path, label }) => {
               const active = location.pathname === path;
               return (
                 <Link
