@@ -6,12 +6,16 @@ import { useAuthStore } from "../store/authStore";
    superadminOnly: true  → link only renders for superadmin role.
    superadminOnly: false → link renders for both admin and superadmin.
    visibleNav (computed below) handles the filtering before render.
+
+   Security users see NO nav links — their Navbar is logo + logout only.
+   Do not add security-specific items here; the security page has one route.
 ─────────────────────────────────────────────────────────────────── */
 const ADMIN_NAV = [
-  { path: "/admin",                label: "Dashboard",      superadminOnly: false },
-  { path: "/admin/analytics",      label: "Analytics",      superadminOnly: false },
-  { path: "/admin/attendance",     label: "Attendance",     superadminOnly: false },
-  { path: "/admin/vehicle-search", label: "Vehicle Search", superadminOnly: true  }, // ← new
+  { path: "/admin",               label: "Dashboard",    superadminOnly: false },
+  { path: "/admin/analytics",     label: "Analytics",    superadminOnly: false },
+  { path: "/admin/attendance",    label: "Attendance",   superadminOnly: false },
+  { path: "/admin/vehicle-log",   label: "Vehicle Log",  superadminOnly: false }, // ← NEW
+  { path: "/admin/vehicle-search",label: "Vehicle Search", superadminOnly: true },
 ];
 
 /* ─── Injected styles ──────────────────────────────────────────── */
@@ -148,7 +152,7 @@ const NAV_STYLES = `
     margin-top: 3px;
     font-weight: 600;
   }
-  /* Generic role line — blue for admin/superadmin */
+  /* Generic role line — blue for admin/superadmin/security */
   .aml-user-role {
     font-size: 8px;
     letter-spacing: 0.12em;
@@ -157,9 +161,13 @@ const NAV_STYLES = `
     margin-top: 3px;
     font-weight: 600;
   }
-  /* Superadmin gets a slightly different accent so it's visually distinct */
+  /* Superadmin gets a purple accent */
   .aml-user-role--superadmin {
     color: #7C3AED;
+  }
+  /* Security gets an amber accent */
+  .aml-user-role--security {
+    color: #B45309;
   }
 
   /* Sign Out button */
@@ -290,20 +298,15 @@ export default function Navbar() {
   const navigate         = useNavigate();
   const location         = useLocation();
 
-  /**
-   * isAdminOrAbove — true for "admin" (branch) AND "superadmin".
-   * This replaces the old `isAdmin` which only checked for "admin"
-   * and left superadmins with a broken technician-style navbar.
-   */
   const isAdminOrAbove = ["admin", "superadmin"].includes(user?.role);
   const isSuperAdmin   = user?.role === "superadmin";
   const isBranchAdmin  = user?.role === "admin";
+  const isSecurity     = user?.role === "security"; // ← NEW
 
   /**
    * visibleNav — filters ADMIN_NAV based on role.
-   * superadminOnly: true items are stripped out for branch admins.
-   * This is the single source of truth for what links each role sees.
-   * Both desktop and mobile nav use this same filtered array.
+   * Security users have no nav items — this array is never rendered for them
+   * since we gate the desktop nav and hamburger behind isAdminOrAbove.
    */
   const visibleNav = ADMIN_NAV.filter(
     ({ superadminOnly }) => !superadminOnly || isSuperAdmin
@@ -347,22 +350,38 @@ export default function Navbar() {
   };
 
   /**
+   * homeRoute — where the brand logo links to per role.
+   *   security   → /security      ← NEW
+   *   admin/super → /admin
+   *   technician  → /dashboard
+   */
+  const homeRoute = isSecurity
+    ? "/security"
+    : isAdminOrAbove
+    ? "/admin"
+    : "/dashboard";
+
+  /**
    * Portal label under the brand name.
-   * superadmin → "Super Admin Portal"
-   * admin      → "Admin Portal"
-   * technician → "Technician Portal"
+   *   superadmin → "Super Admin Portal"
+   *   admin      → "Admin Portal"
+   *   security   → "Security Portal"   ← NEW
+   *   technician → "Technician Portal"
    */
   const portalLabel = isSuperAdmin
     ? "Super Admin Portal"
     : isBranchAdmin
     ? "Admin Portal"
+    : isSecurity
+    ? "Security Portal"
     : "Technician Portal";
 
   /**
    * Role line shown under the user's name in the right cluster.
-   * superadmin  → purple "Super Admin"
-   * branch admin → blue "Branch Admin · <BranchName>"
-   * technician  → gray branch name (or nothing if branch not set yet)
+   *   superadmin  → purple "Super Admin"
+   *   branch admin → blue "Branch Admin · <BranchName>"
+   *   security    → amber "Security · <BranchName>"   ← NEW
+   *   technician  → gray branch name (or nothing)
    */
   const renderUserMeta = () => {
     if (isSuperAdmin) {
@@ -376,6 +395,13 @@ export default function Navbar() {
       return (
         <div className="aml-user-role">
           Branch Admin{user?.branch ? ` · ${user.branch}` : ""}
+        </div>
+      );
+    }
+    if (isSecurity) {
+      return (
+        <div className="aml-user-role aml-user-role--security">
+          Security{user?.branch ? ` · ${user.branch}` : ""}
         </div>
       );
     }
@@ -396,15 +422,13 @@ export default function Navbar() {
 
         {/* ── Left: Brand + desktop nav ── */}
         <div className="aml-nav-left">
-          <Link
-            to={isAdminOrAbove ? "/admin" : "/dashboard"}
-            className="aml-brand"
-          >
+          <Link to={homeRoute} className="aml-brand">
             <div className="aml-brand-name">AML MOTORS</div>
             <div className="aml-brand-sub">{portalLabel}</div>
           </Link>
 
           {/* Separator + desktop nav — admin/superadmin only, visible ≥640px */}
+          {/* Security users intentionally have no nav links */}
           {isAdminOrAbove && (
             <>
               <div className="aml-brand-sep" />
@@ -434,14 +458,14 @@ export default function Navbar() {
             {renderUserMeta()}
           </div>
 
-          {/* Technician: sign out always visible in bar */}
+          {/* Technician + Security: sign out always visible in bar */}
           {!isAdminOrAbove && (
             <button className="aml-signout" onClick={handleLogout}>
               Sign Out
             </button>
           )}
 
-          {/* Admin/Superadmin desktop sign-out (hidden on mobile via CSS) */}
+          {/* Admin/Superadmin desktop sign-out */}
           {isAdminOrAbove && (
             <button
               className="aml-signout aml-signout-desktop"
@@ -451,7 +475,7 @@ export default function Navbar() {
             </button>
           )}
 
-          {/* Admin/Superadmin mobile hamburger (hidden on desktop via CSS) */}
+          {/* Admin/Superadmin mobile hamburger */}
           {isAdminOrAbove && (
             <button
               className={`aml-burger${menuOpen ? " open" : ""}`}
