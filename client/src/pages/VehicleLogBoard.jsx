@@ -159,7 +159,7 @@ const STYLES = `
   .vlb-summary-cell {
     flex: 1; padding: 12px 20px;
     border-right: 1px solid #DDE3EE;
-    display: flex; flex-direction: column; gap: 4px;
+    display: flex; flex-direction: column; gap: 3px;
   }
   .vlb-summary-cell:last-child { border-right: none; }
   .vlb-summary-label {
@@ -172,6 +172,12 @@ const STYLES = `
   }
   .vlb-summary-value--green { color: #16A34A; }
   .vlb-summary-value--amber { color: #B45309; }
+  /* Sub-label shown under assigned/unassigned counts when paginated */
+  .vlb-summary-sub {
+    font-size: 8px; font-weight: 600; color: #CBD5E1;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    line-height: 1; margin-top: 1px;
+  }
 
   /* ── Log cards ── */
   .vlb-logs-wrap {
@@ -385,12 +391,14 @@ export default function VehicleLogBoard() {
   const [committedQ, setCommittedQ] = useState(""); // committed on Enter/Search button
 
   // ── Data ───────────────────────────────────────────────────────────────────
-  const [logs,       setLogs]       = useState([]);
-  const [total,      setTotal]      = useState(0);
-  const [page,       setCurrPage]   = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState("");
+  const [logs,           setLogs]           = useState([]);
+  const [total,          setTotal]          = useState(0);
+  const [totalAssigned,  setTotalAssigned]  = useState(0); // across ALL pages
+  const [totalUnassigned,setTotalUnassigned]= useState(0); // across ALL pages
+  const [page,           setCurrPage]       = useState(1);
+  const [totalPages,     setTotalPages]     = useState(0);
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState("");
 
   // ─── Stable ref for polling (avoids stale closures) ───────────────────────
   const paramsRef = useRef({ date, branch, q: committedQ, page: 1 });
@@ -413,6 +421,9 @@ export default function VehicleLogBoard() {
       const res = await api.get(`/api/security/board?${qs}`);
       setLogs(res.data.logs);
       setTotal(res.data.total);
+      // Use server-computed totals that span ALL matching logs, not just the current page
+      setTotalAssigned(res.data.totalAssigned   ?? 0);
+      setTotalUnassigned(res.data.totalUnassigned ?? 0);
       setCurrPage(res.data.page);
       setTotalPages(res.data.totalPages);
     } catch (err) {
@@ -451,15 +462,11 @@ export default function VehicleLogBoard() {
     setCommittedQ("");
   };
 
-  // ── Derived page summary ───────────────────────────────────────────────────
-  // Total = from API (all matching logs). Assigned/Unassigned = current page only.
-  // At typical daily scale (< 100 logs), pages are rarely needed so
-  // page-level counts are effectively the daily totals.
-  const pageAssigned   = logs.filter((l) => l.status === "assigned").length;
-  const pageUnassigned = logs.filter((l) => l.status === "unassigned").length;
-
   const isToday     = date === todayStr();
   const dateDisplay = isToday ? "Today" : fmtDate(date + "T00:00:00");
+
+  // Whether the summary counts span multiple pages (so we show the "all pages" sub-label)
+  const isMultiPage = totalPages > 1;
 
   return (
     <div className="vlb-page">
@@ -550,15 +557,21 @@ export default function VehicleLogBoard() {
           </div>
           <div className="vlb-summary-cell">
             <span className="vlb-summary-label">Assigned</span>
-            <span className={`vlb-summary-value${pageAssigned > 0 ? " vlb-summary-value--green" : ""}`}>
-              {loading ? "…" : pageAssigned}
+            <span className={`vlb-summary-value${totalAssigned > 0 ? " vlb-summary-value--green" : ""}`}>
+              {loading ? "…" : totalAssigned}
             </span>
+            {isMultiPage && !loading && (
+              <span className="vlb-summary-sub">all pages</span>
+            )}
           </div>
           <div className="vlb-summary-cell">
             <span className="vlb-summary-label">Unassigned</span>
-            <span className={`vlb-summary-value${pageUnassigned > 0 ? " vlb-summary-value--amber" : ""}`}>
-              {loading ? "…" : pageUnassigned}
+            <span className={`vlb-summary-value${totalUnassigned > 0 ? " vlb-summary-value--amber" : ""}`}>
+              {loading ? "…" : totalUnassigned}
             </span>
+            {isMultiPage && !loading && (
+              <span className="vlb-summary-sub">all pages</span>
+            )}
           </div>
           <div className="vlb-summary-cell">
             <span className="vlb-summary-label">Viewing</span>
