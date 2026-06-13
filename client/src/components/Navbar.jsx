@@ -14,8 +14,9 @@ const ADMIN_NAV = [
   { path: "/admin",               label: "Dashboard",    superadminOnly: false },
   { path: "/admin/analytics",     label: "Analytics",    superadminOnly: false },
   { path: "/admin/attendance",    label: "Attendance",   superadminOnly: false },
-  { path: "/admin/vehicle-log",   label: "Vehicle Log",  superadminOnly: false }, // ← NEW
+  { path: "/admin/vehicle-log",   label: "Vehicle Log",  superadminOnly: false },
   { path: "/admin/vehicle-search",label: "Vehicle Search", superadminOnly: true },
+  { path: "/admin/audit-log",     label: "Audit Log",    superadminOnly: true  }, // ← NEW
 ];
 
 /* ─── Injected styles ──────────────────────────────────────────── */
@@ -301,7 +302,7 @@ export default function Navbar() {
   const isAdminOrAbove = ["admin", "superadmin"].includes(user?.role);
   const isSuperAdmin   = user?.role === "superadmin";
   const isBranchAdmin  = user?.role === "admin";
-  const isSecurity     = user?.role === "security"; // ← NEW
+  const isSecurity     = user?.role === "security";
 
   /**
    * visibleNav — filters ADMIN_NAV based on role.
@@ -351,7 +352,7 @@ export default function Navbar() {
 
   /**
    * homeRoute — where the brand logo links to per role.
-   *   security   → /security      ← NEW
+   *   security   → /security
    *   admin/super → /admin
    *   technician  → /dashboard
    */
@@ -365,7 +366,7 @@ export default function Navbar() {
    * Portal label under the brand name.
    *   superadmin → "Super Admin Portal"
    *   admin      → "Admin Portal"
-   *   security   → "Security Portal"   ← NEW
+   *   security   → "Security Portal"
    *   technician → "Technician Portal"
    */
   const portalLabel = isSuperAdmin
@@ -378,10 +379,10 @@ export default function Navbar() {
 
   /**
    * Role line shown under the user's name in the right cluster.
-   *   superadmin  → purple "Super Admin"
+   *   superadmin   → purple "Super Admin"
    *   branch admin → blue "Branch Admin · <BranchName>"
-   *   security    → amber "Security · <BranchName>"   ← NEW
-   *   technician  → gray branch name (or nothing)
+   *   security     → amber "Security · <BranchName>"
+   *   technician   → gray branch name (or nothing)
    */
   const renderUserMeta = () => {
     if (isSuperAdmin) {
