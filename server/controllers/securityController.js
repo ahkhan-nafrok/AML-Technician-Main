@@ -94,6 +94,9 @@ const editLog = async (req, res) => {
 };
 
 // ─── GET /api/security/board ──────────────────────────────────────────────────
+// OPTIMIZED: replaced N+1 Entry.find() loop with a single batched Entry.find()
+// + JS-level partitioning. Response shape is identical to the original.
+// ─────────────────────────────────────────────────────────────────────────────
 const getBoardLogs = async (req, res) => {
   try {
     const isAdmin = req.user.role === "admin";
@@ -118,6 +121,9 @@ const getBoardLogs = async (req, res) => {
       filter.vehicleNoNorm = { $regex: normQ, $options: "i" };
     }
 
+    // ── 1. Fetch all matching logs for the day ─────────────────────────────
+    // Same query as before. Sorted by vehicleNoNorm + loggedAt — the natural
+    // order the linking algorithm requires.
     const allLogs = await SecurityLog.find(filter)
       .populate("loggedBy", "name")
       .sort({ vehicleNoNorm: 1, loggedAt: 1 })
@@ -126,84 +132,129 @@ const getBoardLogs = async (req, res) => {
     const total      = allLogs.length;
     const totalPages = Math.ceil(total / LIMIT);
 
-    const pageLogs = allLogs.slice((safePage - 1) * LIMIT, safePage * LIMIT);
+    // Short-circuit: no logs → skip the entry query entirely
+    if (total === 0) {
+      return res.json({
+        logs:            [],
+        total:           0,
+        page:            safePage,
+        totalPages:      0,
+        date:            targetDate,
+        totalAssigned:   0,
+        totalUnassigned: 0,
+      });
+    }
 
-    // ── Page entries (for display) ────────────────────────────────────────────
-    const withEntries = await Promise.all(
-      pageLogs.map(async (log) => {
-        const nextLog = allLogs.find(
-          (l) =>
-            l.vehicleNoNorm === log.vehicleNoNorm &&
-            l.branch        === log.branch        &&
-            l.loggedAt      >  log.loggedAt
-        );
+    // ── 2. Pre-compute log groups per (vehicleNoNorm|branch) key ────────────
+    // allLogs is already sorted by { vehicleNoNorm: 1, loggedAt: 1 } from the
+    // DB query, so each group's array is naturally in ascending loggedAt order.
+    // This replaces the O(n²) allLogs.find() scan that was inside the old map.
+    const logGroups = new Map(); // `${vehicleNoNorm}|${branch}` → SecurityLog[]
+    let   globalMinLoggedAt = Infinity;
 
-        const entryFilter = {
-          vehicleNoNorm: log.vehicleNoNorm,
-          branch:        log.branch,
-          createdAt:     { $gte: log.loggedAt },
-        };
-        if (nextLog) entryFilter.createdAt.$lt = nextLog.loggedAt;
+    for (const log of allLogs) {
+      const key = `${log.vehicleNoNorm}|${log.branch}`;
+      if (!logGroups.has(key)) logGroups.set(key, []);
+      logGroups.get(key).push(log);
 
-        const entries = await Entry.find(entryFilter)
-          .populate("userId", "name technicianId technicianType")
-          .sort({ createdAt: 1 })
-          .lean();
+      const t = new Date(log.loggedAt).getTime();
+      if (t < globalMinLoggedAt) globalMinLoggedAt = t;
+    }
 
-        return {
-          ...log,
-          entries,
-          status: entries.length > 0 ? "assigned" : "unassigned",
-        };
-      })
-    );
+    // ── 3. ONE batched Entry query for all vehicles ────────────────────────
+    // Old code: N Entry.find() calls (one per log) + N populate calls.
+    // New code: 1 Entry.find() with $in on vehicleNoNorm + 1 populate.
+    //
+    // createdAt lower-bound = earliest loggedAt across all logs.
+    // No upper-bound cap — by design (a technician can log a job card on D+1
+    // for a vehicle that arrived on D; capping at midnight drops valid entries).
+    //
+    // Branch filter: applied when a specific branch is active (reduces scan).
+    // When superadmin views all branches, omit branch filter — the JS grouping
+    // below uses (vehicleNoNorm|branch) key and naturally isolates each branch.
+    const vehicleNorms = [...new Set(allLogs.map((l) => l.vehicleNoNorm))];
 
-    // ── Total assigned/unassigned across ALL matching logs (not page-limited) ─
-    // Single bulk Entry query — avoids N+1 across all logs.
-    const nextDay            = new Date(targetDate.getTime() + 86400000);
-    const uniqueVehicleNorms = [...new Set(allLogs.map((l) => l.vehicleNoNorm))];
+    const entryFilter = {
+      vehicleNoNorm: { $in: vehicleNorms },
+      createdAt:     { $gte: new Date(globalMinLoggedAt) },
+    };
+    if (branch) entryFilter.branch = branch;
 
-    let totalAssigned   = 0;
-    let totalUnassigned = 0;
+    const allEntries = await Entry.find(entryFilter)
+      .populate("userId", "name technicianId technicianType")
+      .sort({ createdAt: 1 }) // ascending — same as original per-log sort
+      .lean();
 
-    if (uniqueVehicleNorms.length > 0) {
-      const bulkEntryQuery = {
-        vehicleNoNorm: { $in: uniqueVehicleNorms },
-        createdAt:     { $gte: targetDate, $lt: nextDay },
-      };
-      if (branch) bulkEntryQuery.branch = branch;
+    // ── 4. Partition entries to their owning log ───────────────────────────
+    // For each entry, find its log by descending through the sorted log group
+    // for that vehicle — stops at the last log whose loggedAt ≤ entry.createdAt,
+    // then verifies entry.createdAt < nextLog.loggedAt (upper bound).
+    //
+    // Correctness guarantee: the groups are sorted ascending by loggedAt, so
+    // scanning from the end finds the correct window in O(visits-per-vehicle)
+    // steps — at most a few iterations for any realistic vehicle history.
+    const entryMap = new Map(); // log._id.toString() → Entry[]
 
-      const bulkEntries = await Entry.find(bulkEntryQuery)
-        .select("vehicleNoNorm branch createdAt")
-        .lean();
+    for (const entry of allEntries) {
+      const key           = `${entry.vehicleNoNorm}|${entry.branch}`;
+      const logsForVehicle = logGroups.get(key);
 
-      for (const log of allLogs) {
-        const nextLog = allLogs.find(
-          (l) =>
-            l.vehicleNoNorm === log.vehicleNoNorm &&
-            l.branch        === log.branch        &&
-            l.loggedAt      >  log.loggedAt
-        );
+      // Entry's vehicle wasn't in today's logs for this branch — skip
+      if (!logsForVehicle) continue;
 
-        const hasEntry = bulkEntries.some(
-          (e) =>
-            e.vehicleNoNorm === log.vehicleNoNorm &&
-            e.branch        === log.branch        &&
-            new Date(e.createdAt) >= new Date(log.loggedAt) &&
-            (!nextLog || new Date(e.createdAt) < new Date(nextLog.loggedAt))
-        );
+      const entryTime = new Date(entry.createdAt).getTime();
 
-        if (hasEntry) totalAssigned++;
-        else          totalUnassigned++;
+      // Descending scan: find the last log whose loggedAt ≤ entry.createdAt
+      for (let i = logsForVehicle.length - 1; i >= 0; i--) {
+        const logTime = new Date(logsForVehicle[i].loggedAt).getTime();
+        if (entryTime >= logTime) {
+          // Verify upper bound: entry must precede the next visit for this vehicle
+          const nextLogTime =
+            i + 1 < logsForVehicle.length
+              ? new Date(logsForVehicle[i + 1].loggedAt).getTime()
+              : Infinity;
+
+          if (entryTime < nextLogTime) {
+            const lid = logsForVehicle[i]._id.toString();
+            if (!entryMap.has(lid)) entryMap.set(lid, []);
+            entryMap.get(lid).push(entry);
+          }
+          break; // found the window — stop scanning
+        }
+        // If entryTime < logTime[0], loop exits with no assignment → correct
       }
     }
 
+    // ── 5. Assemble full result (same shape as original) ─────────────────
+    const allWithEntries = allLogs.map((log) => {
+      const entries = entryMap.get(log._id.toString()) || [];
+      return {
+        ...log,
+        entries,
+        status: entries.length > 0 ? "assigned" : "unassigned",
+      };
+    });
+
+    // Current-page slice (display only — totals always cover all logs)
+    const withEntries = allWithEntries.slice(
+      (safePage - 1) * LIMIT,
+      safePage * LIMIT
+    );
+
+    // Totals derived from the same allWithEntries as the table — no drift
+    let totalAssigned   = 0;
+    let totalUnassigned = 0;
+    for (const log of allWithEntries) {
+      if (log.status === "assigned") totalAssigned++;
+      else                            totalUnassigned++;
+    }
+
     res.json({
-      logs:           withEntries,
+      logs:            withEntries,
       total,
-      page:           safePage,
+      page:            safePage,
       totalPages,
-      date:           targetDate,
+      date:            targetDate,
       totalAssigned,
       totalUnassigned,
     });
@@ -212,5 +263,4 @@ const getBoardLogs = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 module.exports = { createLog, getTodayLogs, editLog, getBoardLogs };
