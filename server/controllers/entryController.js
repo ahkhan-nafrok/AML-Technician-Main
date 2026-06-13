@@ -82,10 +82,6 @@ const createEntry = async (req, res) => {
 };
 
 // ─── GET /api/entries/my ─────────────────────────────────────────────────────
-// FIX: was unbounded (returned ALL entries with no limit).
-// Now paginated. Response shape changed from [] to { entries, total, page, pages }.
-// Frontend must destructure res.data.entries instead of using res.data directly.
-// Default: page=1, limit=20, capped at 100 per request.
 const getMyEntries = async (req, res) => {
   try {
     const page  = Math.max(parseInt(req.query.page,  10) || 1, 1);
@@ -111,27 +107,11 @@ const getMyEntries = async (req, res) => {
   }
 };
 
-// ─── DELETE /api/entries/:id ──────────────────────────────────────────────────
-const deleteEntry = async (req, res) => {
-  try {
-    const entry = await Entry.findById(req.params.id);
-    if (!entry) return res.status(404).json({ message: "Entry not found" });
-
-    if (String(entry.userId) !== String(req.user.userId))
-      return res.status(403).json({ message: "Not authorized to delete this entry" });
-
-    await entry.deleteOne();
-    res.json({ message: "Entry deleted" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
+// REMOVED (Audit System Phase 2): deleteEntry (DELETE /api/entries/:id)
+// Technicians can no longer delete their own entries via any path.
+// Route removed from entryRoutes.js as well.
 
 // ─── GET /api/entries/my/incentive ───────────────────────────────────────────
-// FIX 1: Date range now uses Date.UTC — was using local server time, which is
-//         wrong in IST (UTC+5:30). After 11 PM IST the old code used tomorrow's month.
-// FIX 2: totalVehicles added to response — used by TechnicianDashboard stat card
-//         so the frontend doesn't need to compute it from the entries array.
 const getMonthlyIncentive = async (req, res) => {
   try {
     const now   = new Date();
@@ -141,7 +121,6 @@ const getMonthlyIncentive = async (req, res) => {
     if (month < 1 || month > 12)
       return res.status(400).json({ message: "month must be between 1 and 12" });
 
-    // FIX: UTC boundaries — consistent with every other date range in this codebase
     const startDate = new Date(Date.UTC(year, month - 1, 1));
     const endDate   = new Date(Date.UTC(year, month,     1));
 
@@ -159,7 +138,6 @@ const getMonthlyIncentive = async (req, res) => {
     const totalLabour   = entries.reduce((s, e) => s + (e.labourAmount || 0), 0);
     const totalLeave    = entries.reduce((s, e) => s + (e.leaveDays    || 0), 0);
 
-    // NEW: unique vehicles this month — replaces client-side Set() in dashboard
     const totalVehicles = new Set(
       entries.map((e) => e.vehicleNo).filter(Boolean)
     ).size;
@@ -178,7 +156,7 @@ const getMonthlyIncentive = async (req, res) => {
       totalHours,
       totalLabour,
       totalLeave,
-      totalVehicles, // ← NEW field consumed by TechnicianDashboard
+      totalVehicles,
       ...breakdown,
     });
   } catch (err) {
@@ -187,10 +165,6 @@ const getMonthlyIncentive = async (req, res) => {
 };
 
 // ─── PUT /api/entries/:id ─────────────────────────────────────────────────────
-// FIX: date edits are now restricted.
-//   - Cannot be set to a future date.
-//   - Cannot be set before the start of the current UTC month.
-//   This closes the backdating loophole (attendance gate only covered creation).
 const editMyEntry = async (req, res) => {
   try {
     const entry = await Entry.findById(req.params.id);
@@ -215,7 +189,6 @@ const editMyEntry = async (req, res) => {
     if (jcNo !== undefined && !jcNo?.trim())
       return res.status(400).json({ message: "Job Card No cannot be empty." });
 
-    // FIX: date edit validation — closes backdating loophole
     if (date !== undefined) {
       const newDate = new Date(date);
       if (isNaN(newDate.getTime()))
@@ -225,7 +198,6 @@ const editMyEntry = async (req, res) => {
       if (newDate > now)
         return res.status(400).json({ message: "Date cannot be in the future." });
 
-      // Lock to current month — prevents moving entries to previous months
       const startOfCurrentMonth = new Date(
         Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
       );
@@ -260,4 +232,4 @@ const editMyEntry = async (req, res) => {
   }
 };
 
-module.exports = { createEntry, getMyEntries, deleteEntry, getMonthlyIncentive, editMyEntry };
+module.exports = { createEntry, getMyEntries, getMonthlyIncentive, editMyEntry };
