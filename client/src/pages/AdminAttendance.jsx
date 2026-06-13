@@ -384,12 +384,20 @@ export default function AdminAttendance() {
   );
 
   // ── Initial load + 30-second poll (today only) ────────────────────────────
+  // FIX: visibility guard — skip silent polls when the tab is backgrounded.
+  // Without this, the interval fires every 30s regardless of whether anyone
+  // is actually looking at the page. With multiple admins leaving the tab
+  // open, this multiplies unnecessary DB load throughout the workday.
+  // The guard is purely additive — no change to poll frequency, no change
+  // to the non-silent (initial/manual) fetch path.
   useEffect(() => {
     fetchAttendance(false);
     setExpandedIds(new Set());
 
     if (isToday) {
-      intervalRef.current = setInterval(() => fetchAttendance(true), 30_000);
+      intervalRef.current = setInterval(() => {
+        if (document.visibilityState === "visible") fetchAttendance(true);
+      }, 30_000);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
